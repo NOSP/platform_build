@@ -42,9 +42,9 @@ pathmap_INCL := \
     libpagemap:system/extras/libpagemap/include \
     libril:hardware/ril/include \
     libstdc++:bionic/libstdc++/include \
+    libthread_db:bionic/libthread_db/include \
     mkbootimg:system/core/mkbootimg \
     opengl-tests-includes:frameworks/native/opengl/tests/include \
-    recovery:bootable/recovery \
     system-core:system/core/include \
     audio-effects:system/media/audio_effects/include \
     audio-utils:system/media/audio_utils/include \
@@ -52,6 +52,12 @@ pathmap_INCL := \
     wilhelm:frameworks/wilhelm/include \
     wilhelm-ut:frameworks/wilhelm/src/ut \
     speex:external/speex/include
+
+ifneq ($(WITH_SIMPLE_RECOVERY),true)
+    pathmap_INCL += recovery:bootable/recovery
+else
+    pathmap_INCL += recovery:bootable/simplerecovery
+endif
 
 #
 # Returns the path to the requested module's include directory,
@@ -113,25 +119,15 @@ FRAMEWORKS_SUPPORT_SUBDIRS := \
         v13
 
 #
-# A list of all source roots under frameworks/multidex.
-#
-FRAMEWORKS_MULTIDEX_SUBDIRS := \
-        multidex/library/src \
-        multidex/instrumentation/src
-
-#
 # A version of FRAMEWORKS_SUPPORT_SUBDIRS that is expanded to full paths from
 # the root of the tree.
 #
 FRAMEWORKS_SUPPORT_JAVA_SRC_DIRS := \
-	$(addprefix frameworks/support/,$(FRAMEWORKS_SUPPORT_SUBDIRS)) \
-	$(addprefix frameworks/,$(FRAMEWORKS_MULTIDEX_SUBDIRS))
+	$(addprefix frameworks/support/,$(FRAMEWORKS_SUPPORT_SUBDIRS))
 
 #
 # A list of support library modules.
 #
 FRAMEWORKS_SUPPORT_JAVA_LIBRARIES := \
-    $(foreach dir,$(FRAMEWORKS_SUPPORT_SUBDIRS),android-support-$(subst /,-,$(dir))) \
-    android-support-multidex \
-    android-support-multidex-instrumentation
+    $(foreach dir,$(FRAMEWORKS_SUPPORT_SUBDIRS),android-support-$(subst /,-,$(dir)))
 

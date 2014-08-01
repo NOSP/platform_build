@@ -72,10 +72,10 @@ intermediates.COMMON := $(call local-intermediates-dir,COMMON)
 # Choose leaf name for the compiled jar file.
 ifeq ($(LOCAL_EMMA_INSTRUMENT),true)
 full_classes_compiled_jar_leaf := classes-no-debug-var.jar
-built_dex_intermediate_leaf := no-local
+built_dex_intermediate_leaf := classes-no-local.dex
 else
 full_classes_compiled_jar_leaf := classes-full-debug.jar
-built_dex_intermediate_leaf := with-local
+built_dex_intermediate_leaf := classes-with-local.dex
 endif
 
 ifeq ($(LOCAL_PROGUARD_ENABLED),disabled)
@@ -96,7 +96,7 @@ emma_intermediates_dir := $(intermediates.COMMON)/emma_out
 # only the output directory can be changed
 full_classes_emma_jar := $(emma_intermediates_dir)/lib/$(jarjar_leaf)
 full_classes_proguard_jar := $(intermediates.COMMON)/$(proguard_jar_leaf)
-built_dex_intermediate := $(intermediates.COMMON)/$(built_dex_intermediate_leaf)/classes.dex
+built_dex_intermediate := $(intermediates.COMMON)/$(built_dex_intermediate_leaf)
 full_classes_stubs_jar := $(intermediates.COMMON)/stubs.jar
 
 ifeq ($(LOCAL_MODULE_CLASS)$(LOCAL_SRC_FILES)$(LOCAL_STATIC_JAVA_LIBRARIES)$(LOCAL_SOURCE_FILES_ALL_GENERATED),APPS)
@@ -195,7 +195,7 @@ renderscript_intermediate := $(intermediates)/renderscript
 
 # We don't need the .so files in bundled branches
 # Prevent these from showing up on the device
-ifneq (,$(TARGET_BUILD_APPS)$(FORCE_BUILD_RS_COMPAT))
+ifneq (,$(TARGET_BUILD_APPS))
 
 rs_compatibility_jni_libs := $(addprefix \
     $(renderscript_intermediate)/librs., \
@@ -252,11 +252,6 @@ include $(BUILD_SYSTEM)/base_rules.mk
 
 java_alternative_checked_module :=
 
-#######################################
-# defines built_odex along with rule to install odex
-include $(BUILD_SYSTEM)/dex_preopt_odex_install.mk
-#######################################
-
 # Make sure there's something to build.
 ifdef full_classes_jar
 ifndef need_compile_java
@@ -311,7 +306,7 @@ ifdef full_classes_jar
 #   PRIVATE_ vars to be preserved.
 $(full_classes_stubs_jar): PRIVATE_SOURCE_FILE := $(full_classes_jar)
 $(full_classes_stubs_jar) : $(LOCAL_BUILT_MODULE) | $(ACP)
-	@echo Copying $(PRIVATE_SOURCE_FILE)
+	@echo -e ${CL_GRN}"Copying"${CL_RST}" $(PRIVATE_SOURCE_FILE)"
 	$(hide) $(ACP) -fp $(PRIVATE_SOURCE_FILE) $@
 ALL_MODULES.$(LOCAL_MODULE).STUBS := $(full_classes_stubs_jar)
 
@@ -340,11 +335,11 @@ $(full_classes_compiled_jar): PRIVATE_JAVAC_DEBUG_FLAGS := -g
 ifneq ($(strip $(LOCAL_JARJAR_RULES)),)
 $(full_classes_jarjar_jar): PRIVATE_JARJAR_RULES := $(LOCAL_JARJAR_RULES)
 $(full_classes_jarjar_jar): $(full_classes_compiled_jar) $(LOCAL_JARJAR_RULES) | $(JARJAR)
-	@echo JarJar: $@
+	@echo -e ${CL_GRN}"JarJar:"${CL_RST}" $@"
 	$(hide) java -jar $(JARJAR) process $(PRIVATE_JARJAR_RULES) $< $@
 else
 $(full_classes_jarjar_jar): $(full_classes_compiled_jar) | $(ACP)
-	@echo Copying: $@
+	@echo -e ${CL_GRN}"Copying:"${CL_RST}" $@"
 	$(hide) $(ACP) -fp $< $@
 endif
 
@@ -367,13 +362,13 @@ $(full_classes_emma_jar): $(full_classes_jarjar_jar) | $(EMMA_JAR)
 
 else
 $(full_classes_emma_jar): $(full_classes_jarjar_jar) | $(ACP)
-	@echo Copying: $@
+	@echo -e ${CL_GRN}"Copying:"${CL_RST}" $@"
 	$(copy-file-to-target)
 endif
 
 # Keep a copy of the jar just before proguard processing.
 $(full_classes_jar): $(full_classes_emma_jar) | $(ACP)
-	@echo Copying: $@
+	@echo -e ${CL_GRN}"Copying:"${CL_RST}" $@"
 	$(hide) $(ACP) -fp $< $@
 
 # Run proguard if necessary, otherwise just copy the file.
@@ -435,14 +430,8 @@ endif  # LOCAL_PROGUARD_ENABLED is not nosystem
 proguard_flag_files := $(addprefix $(LOCAL_PATH)/, $(LOCAL_PROGUARD_FLAG_FILES))
 LOCAL_PROGUARD_FLAGS += $(addprefix -include , $(proguard_flag_files))
 
-ifdef LOCAL_TEST_MODULE_TO_PROGUARD_WITH
-extra_input_jar := $(call intermediates-dir-for,APPS,$(LOCAL_TEST_MODULE_TO_PROGUARD_WITH),,COMMON)/classes.jar
-else
-extra_input_jar :=
-endif
-$(full_classes_proguard_jar): PRIVATE_EXTRA_INPUT_JAR := $(extra_input_jar)
 $(full_classes_proguard_jar): PRIVATE_PROGUARD_FLAGS := $(proguard_flags) $(LOCAL_PROGUARD_FLAGS)
-$(full_classes_proguard_jar) : $(full_classes_jar) $(extra_input_jar) $(proguard_flag_files) | $(ACP) $(PROGUARD)
+$(full_classes_proguard_jar) : $(full_classes_jar) $(proguard_flag_files) | $(ACP) $(PROGUARD)
 	$(call transform-jar-to-proguard)
 
 else  # LOCAL_PROGUARD_ENABLED not defined
@@ -469,10 +458,8 @@ endif
 $(built_dex_intermediate): $(full_classes_proguard_jar) $(DX)
 	$(transform-classes.jar-to-dex)
 $(built_dex): $(built_dex_intermediate) | $(ACP)
-	@echo Copying: $@
-	$(hide) mkdir -p $(dir $@)
-	$(hide) rm -f $(dir $@)/classes*.dex
-	$(hide) $(ACP) -fp $(dir $<)/classes*.dex $(dir $@)
+	@echo -e ${CL_GRN}"Copying:"${CL_RST}" $@"
+	$(hide) $(ACP) -fp $< $@
 ifneq ($(GENERATE_DEX_DEBUG),)
 	$(install-dex-debug)
 endif

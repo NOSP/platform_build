@@ -10,8 +10,7 @@ arch_variant_cflags := \
     -mtune=mips32r2 \
     -mips32r2 \
     -mhard-float \
-    -mno-fused-madd \
-    -Wa,-mmxu
+    -mno-fused-madd
 
 arch_variant_ldflags := \
     -EL

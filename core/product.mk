@@ -65,6 +65,8 @@ endef
 #
 
 _product_var_list := \
+    PRODUCT_BOOTANIMATION \
+    PRODUCT_BUILD_PROP_OVERRIDES \
     PRODUCT_NAME \
     PRODUCT_MODEL \
     PRODUCT_LOCALES \
@@ -81,6 +83,7 @@ _product_var_list := \
     PRODUCT_DEFAULT_PROPERTY_OVERRIDES \
     PRODUCT_CHARACTERISTICS \
     PRODUCT_COPY_FILES \
+    PRODUCT_COPY_FILES_OVERRIDES \
     PRODUCT_OTA_PUBLIC_KEYS \
     PRODUCT_EXTRA_RECOVERY_KEYS \
     PRODUCT_PACKAGE_OVERLAYS \
@@ -97,8 +100,8 @@ _product_var_list := \
     PRODUCT_FACTORY_RAMDISK_MODULES \
     PRODUCT_FACTORY_BUNDLE_MODULES \
     PRODUCT_RUNTIMES \
-    PRODUCT_BOOT_JARS \
-    PRODUCT_DEX_PREOPT_IMAGE_IN_DATA \
+    PRODUCT_BOOT_JARS
+
 
 define dump-product
 $(info ==== $(1) ====)\
@@ -252,8 +255,7 @@ _product_stash_var_list += \
 
 
 _product_stash_var_list += \
-	DEFAULT_SYSTEM_DEV_CERTIFICATE \
-	WITH_DEXPREOPT
+	DEFAULT_SYSTEM_DEV_CERTIFICATE
 
 #
 # Stash values of the variables in _product_stash_var_list.

@@ -75,11 +75,7 @@ PRODUCT_BOOT_JARS := \
     apache-xml \
     webviewchromium
 
-PRODUCT_RUNTIMES := runtime_libart_default
-
-PRODUCT_DEFAULT_PROPERTY_OVERRIDES += \
-    ro.zygote=zygote32
-PRODUCT_COPY_FILES += \
-    system/core/rootdir/init.zygote32.rc:root/init.zygote32.rc
+PRODUCT_RUNTIMES := runtime_libdvm_default
+PRODUCT_RUNTIMES += runtime_libart
 
 $(call inherit-product, $(SRC_TARGET_DIR)/product/base.mk)

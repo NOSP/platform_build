@@ -23,7 +23,7 @@ var navBarIsFixed = false;
 $(document).ready(function() {
 
   // load json file for JD doc search suggestions
-  $.getScript(toRoot + 'jd_lists_unified.js');
+  $.getScript(toRoot + 'reference/jd_lists.js');
   // load json file for Android API search suggestions
   $.getScript(toRoot + 'reference/lists.js');
   // load json files for Google services API suggestions
@@ -1539,13 +1539,6 @@ function set_item_values(toroot, $li, match)
     $link.attr('href',toroot + match.link);
 }
 
-function set_item_values_jd(toroot, $li, match)
-{
-    var $link = $('a',$li);
-    $link.html(match.title);
-    $link.attr('href',toroot + match.url);
-}
-
 function new_suggestion($list) {
     var $li = $("<li class='jd-autocomplete'></li>");
     $list.append($li);
@@ -1622,9 +1615,6 @@ function sync_selection_table(toroot)
         $(".search_filtered_wrapper.docs li").remove();
 
         // determine google results to show
-        // NOTE: The order of the conditions below for the sugg.type MUST BE SPECIFIC:
-        // The order must match the reverse order that each section appears as a card in
-        // the suggestion UI... this may be only for the "develop" grouped items though.
         gDocsListLength = gDocsMatches.length < ROW_COUNT_DOCS ? gDocsMatches.length : ROW_COUNT_DOCS;
         for (i=0; i<gDocsListLength; i++) {
             var sugg = gDocsMatches[i];
@@ -1635,19 +1625,16 @@ function sync_selection_table(toroot)
             if (sugg.type == "distribute") {
                 $li = new_suggestion($(".suggest-card.distribute ul"));
             } else
-            if (sugg.type == "samples") {
-                $li = new_suggestion($(".suggest-card.develop .child-card.samples"));
-            } else
             if (sugg.type == "training") {
                 $li = new_suggestion($(".suggest-card.develop .child-card.training"));
             } else
-            if (sugg.type == "about"||"guide"||"tools"||"google") {
+            if (sugg.type == "guide"||"google") {
                 $li = new_suggestion($(".suggest-card.develop .child-card.guides"));
             } else {
               continue;
             }
 
-            set_item_values_jd(toroot, $li, sugg);
+            set_item_values(toroot, $li, sugg);
             set_item_selected($li, i == gSelectedIndex);
         }
 
@@ -1672,10 +1659,6 @@ function sync_selection_table(toroot)
           $(".child-card.training").prepend("<li class='header'>Training:</li>");
           $(".child-card.training li").appendTo(".suggest-card.develop ul");
         }
-        if ($(".child-card.samples li").length > 0) {
-          $(".child-card.samples").prepend("<li class='header'>Samples:</li>");
-          $(".child-card.samples li").appendTo(".suggest-card.develop ul");
-        }
 
         if ($(".suggest-card.develop li").length > 0) {
           $(".suggest-card.develop").show(300);
@@ -1698,7 +1681,6 @@ function sync_selection_table(toroot)
   */
 function search_changed(e, kd, toroot)
 {
-    var currentLang = getLangPref();
     var search = document.getElementById("search_autocomplete");
     var text = search.value.replace(/(^ +)|( +$)/g, '');
     // get the ul hosting the currently selected item
@@ -1812,8 +1794,8 @@ function search_changed(e, kd, toroot)
       }
     }
 
-    // if key-up event and not arrow down/up/left/right,
-    // read the search query and add suggestions to gMatches
+    // if key-up event and not arrow down/up,
+    // read the search query and add suggestsions to gMatches
     else if (!kd && (e.keyCode != 40)
                  && (e.keyCode != 38)
                  && (e.keyCode != 37)
@@ -1859,35 +1841,31 @@ function search_changed(e, kd, toroot)
 
 
 
-        // Search for matching JD docs
+        // Search for JD docs
         if (text.length >= 3) {
-          // Regex to match only the beginning of a word
-          var textRegex = new RegExp("\\b" + text.toLowerCase(), "g");
-
-
-          // Search for Training classes
-          for (var i=0; i<TRAINING_RESOURCES.length; i++) {
+          for (var i=0; i<JD_DATA.length; i++) {
+            // Regex to match only the beginning of a word
+            var textRegex = new RegExp("\\b" + text.toLowerCase(), "g");
             // current search comparison, with counters for tag and title,
             // used later to improve ranking
-            var s = TRAINING_RESOURCES[i];
+            var s = JD_DATA[i];
             s.matched_tag = 0;
             s.matched_title = 0;
             var matched = false;
 
             // Check if query matches any tags; work backwards toward 1 to assist ranking
-            for (var j = s.keywords.length - 1; j >= 0; j--) {
+            for (var j = s.tags.length - 1; j >= 0; j--) {
               // it matches a tag
-              if (s.keywords[j].toLowerCase().match(textRegex)) {
+              if (s.tags[j].toLowerCase().match(textRegex)) {
                 matched = true;
                 s.matched_tag = j + 1; // add 1 to index position
               }
             }
-            // Don't consider doc title for lessons (only for class landing pages),
-            // unless the lesson has a tag that already matches
-            if ((s.lang == currentLang) &&
-                  (!(s.type == "training" && s.url.indexOf("index.html") == -1) || matched)) {
+            // Don't consider doc title for lessons (only for class landing pages)
+            // ...it is not a training lesson (or is but has matched a tag)
+            if (!(s.type == "training" && s.link.indexOf("index.html") == -1) || matched) {
               // it matches the doc title
-              if (s.title.toLowerCase().match(textRegex)) {
+              if (s.label.toLowerCase().match(textRegex)) {
                 matched = true;
                 s.matched_title = 1;
               }
@@ -1897,231 +1875,6 @@ function search_changed(e, kd, toroot)
               matchedCountDocs++;
             }
           }
-
-
-          // Search for API Guides
-          for (var i=0; i<GUIDE_RESOURCES.length; i++) {
-            // current search comparison, with counters for tag and title,
-            // used later to improve ranking
-            var s = GUIDE_RESOURCES[i];
-            s.matched_tag = 0;
-            s.matched_title = 0;
-            var matched = false;
-
-            // Check if query matches any tags; work backwards toward 1 to assist ranking
-            for (var j = s.keywords.length - 1; j >= 0; j--) {
-              // it matches a tag
-              if (s.keywords[j].toLowerCase().match(textRegex)) {
-                matched = true;
-                s.matched_tag = j + 1; // add 1 to index position
-              }
-            }
-            // Check if query matches the doc title, but only for current language
-            if (s.lang == currentLang) {
-              // if query matches the doc title
-              if (s.title.toLowerCase().match(textRegex)) {
-                matched = true;
-                s.matched_title = 1;
-              }
-            }
-            if (matched) {
-              gDocsMatches[matchedCountDocs] = s;
-              matchedCountDocs++;
-            }
-          }
-
-
-          // Search for Tools Guides
-          for (var i=0; i<TOOLS_RESOURCES.length; i++) {
-            // current search comparison, with counters for tag and title,
-            // used later to improve ranking
-            var s = TOOLS_RESOURCES[i];
-            s.matched_tag = 0;
-            s.matched_title = 0;
-            var matched = false;
-
-            // Check if query matches any tags; work backwards toward 1 to assist ranking
-            for (var j = s.keywords.length - 1; j >= 0; j--) {
-              // it matches a tag
-              if (s.keywords[j].toLowerCase().match(textRegex)) {
-                matched = true;
-                s.matched_tag = j + 1; // add 1 to index position
-              }
-            }
-            // Check if query matches the doc title, but only for current language
-            if (s.lang == currentLang) {
-              // if query matches the doc title
-              if (s.title.toLowerCase().match(textRegex)) {
-                matched = true;
-                s.matched_title = 1;
-              }
-            }
-            if (matched) {
-              gDocsMatches[matchedCountDocs] = s;
-              matchedCountDocs++;
-            }
-          }
-
-
-          // Search for About docs
-          for (var i=0; i<ABOUT_RESOURCES.length; i++) {
-            // current search comparison, with counters for tag and title,
-            // used later to improve ranking
-            var s = ABOUT_RESOURCES[i];
-            s.matched_tag = 0;
-            s.matched_title = 0;
-            var matched = false;
-
-            // Check if query matches any tags; work backwards toward 1 to assist ranking
-            for (var j = s.keywords.length - 1; j >= 0; j--) {
-              // it matches a tag
-              if (s.keywords[j].toLowerCase().match(textRegex)) {
-                matched = true;
-                s.matched_tag = j + 1; // add 1 to index position
-              }
-            }
-            // Check if query matches the doc title, but only for current language
-            if (s.lang == currentLang) {
-              // if query matches the doc title
-              if (s.title.toLowerCase().match(textRegex)) {
-                matched = true;
-                s.matched_title = 1;
-              }
-            }
-            if (matched) {
-              gDocsMatches[matchedCountDocs] = s;
-              matchedCountDocs++;
-            }
-          }
-
-
-          // Search for Design guides
-          for (var i=0; i<DESIGN_RESOURCES.length; i++) {
-            // current search comparison, with counters for tag and title,
-            // used later to improve ranking
-            var s = DESIGN_RESOURCES[i];
-            s.matched_tag = 0;
-            s.matched_title = 0;
-            var matched = false;
-
-            // Check if query matches any tags; work backwards toward 1 to assist ranking
-            for (var j = s.keywords.length - 1; j >= 0; j--) {
-              // it matches a tag
-              if (s.keywords[j].toLowerCase().match(textRegex)) {
-                matched = true;
-                s.matched_tag = j + 1; // add 1 to index position
-              }
-            }
-            // Check if query matches the doc title, but only for current language
-            if (s.lang == currentLang) {
-              // if query matches the doc title
-              if (s.title.toLowerCase().match(textRegex)) {
-                matched = true;
-                s.matched_title = 1;
-              }
-            }
-            if (matched) {
-              gDocsMatches[matchedCountDocs] = s;
-              matchedCountDocs++;
-            }
-          }
-
-
-          // Search for Distribute guides
-          for (var i=0; i<DISTRIBUTE_RESOURCES.length; i++) {
-            // current search comparison, with counters for tag and title,
-            // used later to improve ranking
-            var s = DISTRIBUTE_RESOURCES[i];
-            s.matched_tag = 0;
-            s.matched_title = 0;
-            var matched = false;
-
-            // Check if query matches any tags; work backwards toward 1 to assist ranking
-            for (var j = s.keywords.length - 1; j >= 0; j--) {
-              // it matches a tag
-              if (s.keywords[j].toLowerCase().match(textRegex)) {
-                matched = true;
-                s.matched_tag = j + 1; // add 1 to index position
-              }
-            }
-            // Check if query matches the doc title, but only for current language
-            if (s.lang == currentLang) {
-              // if query matches the doc title
-              if (s.title.toLowerCase().match(textRegex)) {
-                matched = true;
-                s.matched_title = 1;
-              }
-            }
-            if (matched) {
-              gDocsMatches[matchedCountDocs] = s;
-              matchedCountDocs++;
-            }
-          }
-
-
-          // Search for Google guides
-          for (var i=0; i<GOOGLE_RESOURCES.length; i++) {
-            // current search comparison, with counters for tag and title,
-            // used later to improve ranking
-            var s = GOOGLE_RESOURCES[i];
-            s.matched_tag = 0;
-            s.matched_title = 0;
-            var matched = false;
-
-            // Check if query matches any tags; work backwards toward 1 to assist ranking
-            for (var j = s.keywords.length - 1; j >= 0; j--) {
-              // it matches a tag
-              if (s.keywords[j].toLowerCase().match(textRegex)) {
-                matched = true;
-                s.matched_tag = j + 1; // add 1 to index position
-              }
-            }
-            // Check if query matches the doc title, but only for current language
-            if (s.lang == currentLang) {
-              // if query matches the doc title
-              if (s.title.toLowerCase().match(textRegex)) {
-                matched = true;
-                s.matched_title = 1;
-              }
-            }
-            if (matched) {
-              gDocsMatches[matchedCountDocs] = s;
-              matchedCountDocs++;
-            }
-          }
-
-
-          // Search for Samples
-          for (var i=0; i<SAMPLES_RESOURCES.length; i++) {
-            // current search comparison, with counters for tag and title,
-            // used later to improve ranking
-            var s = SAMPLES_RESOURCES[i];
-            s.matched_tag = 0;
-            s.matched_title = 0;
-            var matched = false;
-            // Check if query matches any tags; work backwards toward 1 to assist ranking
-            for (var j = s.keywords.length - 1; j >= 0; j--) {
-              // it matches a tag
-              if (s.keywords[j].toLowerCase().match(textRegex)) {
-                matched = true;
-                s.matched_tag = j + 1; // add 1 to index position
-              }
-            }
-            // Check if query matches the doc title, but only for current language
-            if (s.lang == currentLang) {
-              // if query matches the doc title.t
-              if (s.title.toLowerCase().match(textRegex)) {
-                matched = true;
-                s.matched_title = 1;
-              }
-            }
-            if (matched) {
-              gDocsMatches[matchedCountDocs] = s;
-              matchedCountDocs++;
-            }
-          }
-
-          // Rank/sort all the matched pages
           rank_autocomplete_doc_results(text, gDocsMatches);
         }
 
@@ -2629,8 +2382,7 @@ function toggleVisisbleApis(selectedLevel, context) {
     // Grey things out that aren't available and give a tooltip title
     if (apiLevelNum > selectedLevelNum) {
       obj.addClass("absent").attr("title","Requires API Level \""
-            + apiLevel + "\" or higher. To reveal, change the target API level "
-              + "above the left navigation.");
+            + apiLevel + "\" or higher");
     }
     else obj.removeClass("absent").removeAttr("title");
   });

@@ -122,8 +122,6 @@ onkeyup="return search_changed(event, false, '<?cs var:toroot ?>')" />
       </div>
       <div class="child-card training no-display">
       </div>
-      <div class="child-card samples no-display">
-      </div>
     </div>
     <div class="suggest-card design no-display">
       <ul class="search_filtered">
@@ -162,7 +160,7 @@ onkeyup="return search_changed(event, false, '<?cs var:toroot ?>')" />
                           ja-lang="トレーニング"
                           es-lang="Capacitación"               
                           >Training</a></li>
-                        <li><a href="<?cs var:toroot ?>guide/index.html"
+                        <li><a href="<?cs var:toroot ?>guide/components/index.html"
                           zh-tw-lang="API 指南"
                           zh-cn-lang="API 指南"
                           ru-lang="Руководства по API"
@@ -233,7 +231,7 @@ onkeyup="return search_changed(event, false, '<?cs var:toroot ?>')" />
                   ja-lang="トレーニング"
                   es-lang="Capacitación"               
                   >Training</a></li>
-                <li class="guide"><a href="<?cs var:toroot ?>guide/index.html"
+                <li class="guide"><a href="<?cs var:toroot ?>guide/components/index.html"
                   zh-tw-lang="API 指南"
                   zh-cn-lang="API 指南"
                   ru-lang="Руководства по API"
