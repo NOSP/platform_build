@@ -36,10 +36,15 @@ echo "ro.board.platform=$TARGET_BOARD_PLATFORM"
 
 echo "# ro.build.product is obsolete; use ro.product.device"
 echo "ro.build.product=$TARGET_DEVICE"
-
-echo "# Do not try to parse ro.build.description or .fingerprint"
-echo "ro.build.description=$PRIVATE_BUILD_DESC"
-echo "ro.build.fingerprint=$BUILD_FINGERPRINT"
+if [ "$TARGET_UNIFIED_DEVICE" == "" ] ; then
+  echo "ro.product.model=$PRODUCT_MODEL"
+  echo "ro.product.device=$TARGET_DEVICE"
+  echo "# Do not try to parse ro.build.description or .fingerprint"
+  echo "ro.build.description=$PRIVATE_BUILD_DESC"
+  echo "ro.build.fingerprint=$BUILD_FINGERPRINT"
+fi
 echo "ro.build.characteristics=$TARGET_AAPT_CHARACTERISTICS"
+
+echo "ro.nosp.device=$NOSP_DEVICE"
 
 echo "# end build properties"

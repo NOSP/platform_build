@@ -1,24 +1,21 @@
 function hmm() {
 cat <<EOF
 Invoke ". build/envsetup.sh" from your shell to add the following functions to your environment:
-- lunch:    lunch <product_name>-<build_variant>
-- tapas:    tapas [<App1> <App2> ...] [arm|x86|mips] [eng|userdebug|user]
-- croot:    Changes directory to the top of the tree.
-- groot:    Changes directory to the root of the git project.
-- m:        Makes from the top of the tree.
-- mm:       Builds all of the modules in the current directory.
-- mmm:      Builds all of the modules in the supplied directories.
-- cgrep:    Greps on all local C/C++ files.
-- jgrep:    Greps on all local Java files.
-- resgrep:  Greps on all local res/*.xml files.
-- godir:    Go to the directory containing a file.
-- mka:      Builds using SCHED_BATCH on all processors
-- mbot:     Builds for all devices using the psuedo buildbot
-- mkapush:  Same as mka with the addition of adb pushing to the device.
-- pstest:   cherry pick a patch from any gerrit instance.
-- pspush:   push commit to gerrit
-- taco:     Builds for a single device using the pseudo buildbot
-- reposync: Parallel repo sync using ionice and SCHED_BATCH
+- lunch:   lunch <product_name>-<build_variant>
+- tapas:   tapas [<App1> <App2> ...] [arm|x86|mips|armv5] [eng|userdebug|user]
+- croot:   Changes directory to the top of the tree.
+- cout:    Changes directory to out.
+- m:       Makes from the top of the tree.
+- mm:      Builds all of the modules in the current directory, but not their dependencies.
+- mmm:     Builds all of the modules in the supplied directories, but not their dependencies.
+- mma:     Builds all of the modules in the current directory, and their dependencies.
+- mmma:    Builds all of the modules in the supplied directories, and their dependencies.
+- mmp:     Builds all of the modules in the current directory and pushes them to the device.
+- mmmp:    Builds all of the modules in the supplied directories and pushes them to the device.
+- cgrep:   Greps on all local C/C++ files.
+- jgrep:   Greps on all local Java files.
+- resgrep: Greps on all local res/*.xml files.
+- godir:   Go to the directory containing a file.
 
 Look at the source to view more functions. The complete list is:
 EOF
@@ -65,11 +62,11 @@ function check_product()
     fi
 
     if (echo -n $1 | grep -q -e "^nosp_") ; then
-       NOSP_BUILD=$(echo -n $1 | sed -e 's/^nosp_//g')
+       NOSP_PRODUCT=$(echo -n $1 | sed -e 's/^nosp_//g')
     else
-       NOSP_BUILD=
+       NOSP_PRODUCT=
     fi
-    export NOSP_BUILD
+    export NOSP_PRODUCT
 
     CALLED_FROM_SETUP=true BUILD_SYSTEM=build/core \
         TARGET_PRODUCT=$1 \
@@ -217,8 +214,6 @@ function set_stuff_for_environment()
     set_java_home
     setpaths
     set_sequence_number
-
-    export ANDROID_BUILD_TOP=$(gettop)
 }
 
 function set_sequence_number()
@@ -451,7 +446,11 @@ function print_lunch_menu()
     echo
     echo "You're building on" $uname
     echo
-    echo "Lunch menu... pick a combo:"
+    if [ "z${NOSP_DEVICES_ONLY}" != "z" ]; then
+       echo "Breakfast menu... pick a combo:"
+    else
+       echo "Lunch menu... pick a combo:"
+    fi
 
     local i=1
     local choice
@@ -461,6 +460,10 @@ function print_lunch_menu()
         i=$(($i+1))
     done
 
+    if [ "z${NOSP_DEVICES_ONLY}" != "z" ]; then
+       echo "Prepare yourself for the SLOTH!"
+    fi
+
     echo
 }
 
@@ -468,7 +471,7 @@ function brunch()
 {
     breakfast $*
     if [ $? -eq 0 ]; then
-        time mka bacon
+        mka bacon
     else
         echo "No such item in brunch menu. Try 'breakfast'"
         return 1
@@ -476,19 +479,29 @@ function brunch()
     return $?
 }
 
+function mka() {
+    case `uname -s` in
+        Darwin)
+            make -j `sysctl hw.ncpu|cut -d" " -f2` "$@"
+            ;;
+        *)
+            schedtool -B -n 1 -e ionice -n 1 make -j$(cat /proc/cpuinfo | grep "^processor" | wc -l) "$@"
+            ;;
+    esac
+}
+
 function breakfast()
 {
     target=$1
-    local variant=$2
     NOSP_DEVICES_ONLY="true"
     unset LUNCH_MENU_CHOICES
     add_lunch_combo full-eng
     for f in `/bin/ls vendor/nosp/vendorsetup.sh 2> /dev/null`
         do
-            echo "including $f"
+echo "including $f"
             . $f
         done
-    unset f
+unset f
 
     if [ $# -eq 0 ]; then
         # No arguments, so let's have the full menu
@@ -499,17 +512,12 @@ function breakfast()
             # A buildtype was specified, assume a full device name
             lunch $target
         else
-            # This is probably just the nosp model name
-            if [ -z "$variant" ]; then
-                variant="userdebug"
-            fi
-            lunch nosp_$target-$variant
+            # This is probably just the SKA model name
+            lunch nosp_$target-userdebug
         fi
     fi
     return $?
 }
-
-alias bib=breakfast
 
 function lunch()
 {
@@ -550,6 +558,17 @@ function lunch()
 
     local product=$(echo -n $selection | sed -e "s/-.*$//")
     check_product $product
+    if [ $? -ne 0 ]
+    then
+        # if we can't find a product, try to grab it off the SlimRoms github
+        T=$(gettop)
+        pushd $T > /dev/null
+        build/tools/roomservice.py $product
+        popd > /dev/null
+        check_product $product
+    else
+        build/tools/roomservice.py $product true
+    fi
     if [ $? -ne 0 ]
     then
         echo
@@ -636,42 +655,58 @@ function tapas()
     printconfig
 }
 
-function eat()
+# Credit for color strip sed: http://goo.gl/BoIcm
+function mmmp()
 {
-    if [ "$OUT" ] ; then
-        MODVERSION=`sed -n -e'/ro\.cm\.version/s/.*=//p' $OUT/system/build.prop`
-        ZIPFILE=update-cm-$MODVERSION-signed.zip
-        ZIPPATH=$OUT/$ZIPFILE
-        if [ ! -f $ZIPPATH ] ; then
-            echo "Nothing to eat"
-            return 1
-        fi
-        adb start-server # Prevent unexpected starting server message from adb get-state in the next line
-        if [ $(adb get-state) != device -a $(adb shell busybox test -e /sbin/recovery 2> /dev/null; echo $?) != 0 ] ; then
-            echo "No device is online. Waiting for one..."
-            echo "Please connect USB and/or enable USB debugging"
-            until [ $(adb get-state) = device -o $(adb shell busybox test -e /sbin/recovery 2> /dev/null; echo $?) = 0 ];do
-                sleep 1
-            done
-            echo "Device Found.."
-        fi
-        echo "Pushing $ZIPFILE to device"
-        if adb push $ZIPPATH /storage/sdcard0/ ; then
-            cat << EOF > /tmp/command
---update_package=/sdcard/$ZIPFILE
-EOF
-            if adb push /tmp/command /cache/recovery/ ; then
-                echo "Rebooting into recovery for installation"
-                adb reboot recovery
-            fi
-            rm /tmp/command
-        fi
-    else
-        echo "Nothing to eat"
+    if [[ $# < 1 || $1 == "--help" || $1 == "-h" ]]; then
+        echo "mmmp [make arguments] <path-to-project>"
         return 1
     fi
-    return $?
+
+    # Get product name from cm_<product>
+    PRODUCT=`echo $TARGET_PRODUCT | tr "_" "\n" | tail -n 1`
+
+    adb start-server # Prevent unexpected starting server message from adb get-state in the next line
+    if [ $(adb get-state) != device -a $(adb shell busybox test -e /sbin/recovery 2> /dev/null; echo $?) != 0 ] ; then
+        echo "No device is online. Waiting for one..."
+        echo "Please connect USB and/or enable USB debugging"
+        until [ $(adb get-state) = device -o $(adb shell busybox test -e /sbin/recovery 2> /dev/null; echo $?) = 0 ];do
+            sleep 1
+        done
+        echo "Device Found.."
+    fi
+
+    adb root &> /dev/null
+    sleep 0.3
+    adb wait-for-device &> /dev/null
+    sleep 0.3
+    adb remount &> /dev/null
+
+    mmm $* | tee .log
+
+    # Install: <file>
+    LOC=$(cat .log | sed -r 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g' | grep 'Install' | cut -d ':' -f 2)
+
+    # Copy: <file>
+    LOC=$LOC $(cat .log | sed -r 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g' | grep 'Copy' | cut -d ':' -f 2)
+
+    for FILE in $LOC; do
+        # Get target file name (i.e. system/bin/adb)
+        TARGET=$(echo $FILE | sed "s/\/$PRODUCT\//\n/" | tail -n 1)
+
+        # Don't send files that are not in /system.
+        if ! echo $TARGET | egrep '^system\/' > /dev/null ; then
+            continue
+        else
+            echo "Pushing: $TARGET"
+            adb push $FILE $TARGET
+        fi
+    done
+    rm -f .log
+    return 0
 }
+
+alias mmp='mmmp .'
 
 function gettop
 {
@@ -736,6 +771,9 @@ function mm()
         # Find the closest Android.mk file.
         T=$(gettop)
         local M=$(findmakefile)
+        local MODULES=
+        local GET_INSTALL_PATH=
+        local ARGS=
         # Remove the path to top as the makefilepath needs to be relative
         local M=`echo $M|sed 's:'$T'/::'`
         if [ ! "$T" ]; then
@@ -743,7 +781,19 @@ function mm()
         elif [ ! "$M" ]; then
             echo "Couldn't locate a makefile from the current directory."
         else
-            ONE_SHOT_MAKEFILE=$M make -C $T -f build/core/main.mk all_modules $@
+            for ARG in $@; do
+                case $ARG in
+                  GET-INSTALL-PATH) GET_INSTALL_PATH=$ARG;;
+                esac
+            done
+            if [ -n "$GET_INSTALL_PATH" ]; then
+              MODULES=
+              ARGS=GET-INSTALL-PATH
+            else
+              MODULES=all_modules
+              ARGS=$@
+            fi
+            ONE_SHOT_MAKEFILE=$M make -C $T -f build/core/main.mk $MODULES $ARGS
         fi
     fi
 }
@@ -756,6 +806,7 @@ function mmm()
         local MODULES=
         local ARGS=
         local DIR TO_CHOP
+        local GET_INSTALL_PATH=
         local DASH_ARGS=$(echo "$@" | awk -v RS=" " -v ORS=" " '/^-.*$/')
         local DIRS=$(echo "$@" | awk -v RS=" " -v ORS=" " '/^[^-].*$/')
         for DIR in $DIRS ; do
@@ -765,10 +816,10 @@ function mmm()
             fi
             DIR=`echo $DIR | sed -e 's/:.*//' -e 's:/$::'`
             if [ -f $DIR/Android.mk ]; then
-                TO_CHOP=`(\cd -P -- $T && pwd -P) | wc -c | tr -d ' '`
-                TO_CHOP=`expr $TO_CHOP + 1`
-                START=`PWD= /bin/pwd`
-                MFILE=`echo $START | cut -c${TO_CHOP}-`
+                local TO_CHOP=`(\cd -P -- $T && pwd -P) | wc -c | tr -d ' '`
+                local TO_CHOP=`expr $TO_CHOP + 1`
+                local START=`PWD= /bin/pwd`
+                local MFILE=`echo $START | cut -c${TO_CHOP}-`
                 if [ "$MFILE" = "" ] ; then
                     MFILE=$DIR/Android.mk
                 else
@@ -776,20 +827,17 @@ function mmm()
                 fi
                 MAKEFILE="$MAKEFILE $MFILE"
             else
-                if [ "$DIR" = snod ]; then
-                    ARGS="$ARGS snod"
-                elif [ "$DIR" = showcommands ]; then
-                    ARGS="$ARGS showcommands"
-                elif [ "$DIR" = dist ]; then
-                    ARGS="$ARGS dist"
-                elif [ "$DIR" = incrementaljavac ]; then
-                    ARGS="$ARGS incrementaljavac"
-                else
-                    echo "No Android.mk in $DIR."
-                    return 1
-                fi
+                case $DIR in
+                  showcommands | snod | dist | incrementaljavac) ARGS="$ARGS $DIR";;
+                  GET-INSTALL-PATH) GET_INSTALL_PATH=$DIR;;
+                  *) echo "No Android.mk in $DIR."; return 1;;
+                esac
             fi
         done
+        if [ -n "$GET_INSTALL_PATH" ]; then
+          ARGS=$GET_INSTALL_PATH
+          MODULES=
+        fi
         ONE_SHOT_MAKEFILE="$MAKEFILE" make -C $T -f build/core/main.mk $DASH_ARGS $MODULES $ARGS
     else
         echo "Couldn't locate the top of the tree.  Try setting TOP."
@@ -855,13 +903,12 @@ function croot()
     fi
 }
 
-function groot()
+function cout()
 {
-    T=$(git rev-parse --show-cdup)
-    if [ "$T" ]; then
-        cd $(git rev-parse --show-cdup)
+    if [  "$OUT" ]; then
+        cd $OUT
     else
-        echo "Already at the root of the git project."
+        echo "Couldn't locate out directory.  Try setting OUT."
     fi
 }
 
@@ -882,15 +929,50 @@ function cproj()
     echo "can't find Android.mk"
 }
 
+# simplified version of ps; output in the form
+# <pid> <procname>
+function qpid() {
+    local prepend=''
+    local append=''
+    if [ "$1" = "--exact" ]; then
+        prepend=' '
+        append='$'
+        shift
+    elif [ "$1" = "--help" -o "$1" = "-h" ]; then
+		echo "usage: qpid [[--exact] <process name|pid>"
+		return 255
+	fi
+
+    local EXE="$1"
+    if [ "$EXE" ] ; then
+		qpid | \grep "$prepend$EXE$append"
+	else
+		adb shell ps \
+			| tr -d '\r' \
+			| sed -e 1d -e 's/^[^ ]* *\([0-9]*\).* \([^ ]*\)$/\1 \2/'
+	fi
+}
+
 function pid()
 {
-   local EXE="$1"
-   if [ "$EXE" ] ; then
-       local PID=`adb shell ps | fgrep $1 | sed -e 's/[^ ]* *\([0-9]*\).*/\1/'`
-       echo "$PID"
-   else
-       echo "usage: pid name"
-   fi
+    local prepend=''
+    local append=''
+    if [ "$1" = "--exact" ]; then
+        prepend=' '
+        append='$'
+        shift
+    fi
+    local EXE="$1"
+    if [ "$EXE" ] ; then
+        local PID=`adb shell ps \
+            | tr -d '\r' \
+            | \grep "$prepend$EXE$append" \
+            | sed -e 's/^[^ ]* *\([0-9]*\).*$/\1/'`
+        echo "$PID"
+    else
+        echo "usage: pid [--exact] <process name>"
+		return 255
+    fi
 }
 
 # systemstack - dump the current stack trace of all threads in the system process
@@ -905,31 +987,45 @@ function stacks()
     if [[ $1 =~ ^[0-9]+$ ]] ; then
         local PID="$1"
     elif [ "$1" ] ; then
-        local PID=$(pid $1)
+        local PIDLIST="$(pid $1)"
+        if [[ $PIDLIST =~ ^[0-9]+$ ]] ; then
+            local PID="$PIDLIST"
+        elif [ "$PIDLIST" ] ; then
+            echo "more than one process: $1"
+        else
+            echo "no such process: $1"
+        fi
     else
         echo "usage: stacks [pid|process name]"
     fi
 
     if [ "$PID" ] ; then
-        local TRACES=/data/anr/traces.txt
-        local ORIG=/data/anr/traces.orig
-        local TMP=/data/anr/traces.tmp
+        # Determine whether the process is native
+        if adb shell ls -l /proc/$PID/exe | grep -q /system/bin/app_process ; then
+            # Dump stacks of Dalvik process
+            local TRACES=/data/anr/traces.txt
+            local ORIG=/data/anr/traces.orig
+            local TMP=/data/anr/traces.tmp
 
-        # Keep original traces to avoid clobbering
-        adb shell mv $TRACES $ORIG
+            # Keep original traces to avoid clobbering
+            adb shell mv $TRACES $ORIG
 
-        # Make sure we have a usable file
-        adb shell touch $TRACES
-        adb shell chmod 666 $TRACES
+            # Make sure we have a usable file
+            adb shell touch $TRACES
+            adb shell chmod 666 $TRACES
 
-        # Dump stacks and wait for dump to finish
-        adb shell kill -3 $PID
-        adb shell notify $TRACES
+            # Dump stacks and wait for dump to finish
+            adb shell kill -3 $PID
+            adb shell notify $TRACES >/dev/null
 
-        # Restore original stacks, and show current output
-        adb shell mv $TRACES $TMP
-        adb shell mv $ORIG $TRACES
-        adb shell cat $TMP | less -S
+            # Restore original stacks, and show current output
+            adb shell mv $TRACES $TMP
+            adb shell mv $ORIG $TRACES
+            adb shell cat $TMP
+        else
+            # Dump stacks of native process
+            adb shell debuggerd -b $PID
+        fi
     fi
 }
 
@@ -976,7 +1072,7 @@ function gdbclient()
                if [[ ! "$PID" =~ ^[0-9]+$ ]] ; then
                    # that likely didn't work because of returning multiple processes
                    # try again, filtering by root processes (don't contain colon)
-                   PID=`adb shell ps | grep $3 | grep -v ":" | awk '{print $2}'`
+                   PID=`adb shell ps | \grep $3 | \grep -v ":" | awk '{print $2}'`
                    if [[ ! "$PID" =~ ^[0-9]+$ ]]
                    then
                        echo "Couldn't resolve '$3' to single PID"
@@ -1341,141 +1437,6 @@ function godir () {
     \cd $T/$pathname
 }
 
-function mka() {
-    case `uname -s` in
-        Darwin)
-            make -j `sysctl hw.ncpu|cut -d" " -f2` "$@"
-            ;;
-        *)
-            schedtool -B -n 1 -e ionice -n 1 make -j$(cat /proc/cpuinfo | grep "^processor" | wc -l) "$@"
-            ;;
-    esac
-}
-
-function mbot() {
-    unset LUNCH_MENU_CHOICES
-    croot
-    ./vendor/ska/bot/deploy.sh
-}
-
-function mkapush() {
-    # There's got to be a better way to do this stupid shit.
-    case `uname -s` in
-        Darwin)
-            if [ ! -f $ANDROID_PRODUCT_OUT/installed-files.txt ]; then
-                make -j `sysctl hw.ncpu|cut -d" " -f2` installed-file-list
-            fi
-            make -j `sysctl hw.ncpu|cut -d" " -f2` "$@"
-            ;;
-        *)
-            if [ ! -f $ANDROID_PRODUCT_OUT/installed-files.txt ]; then
-                schedtool -B -n 1 -e ionice -n 1 make -j$(cat /proc/cpuinfo | grep "^processor" | wc -l) installed-file-list
-            fi
-            schedtool -B -n 1 -e ionice -n 1 make -j$(cat /proc/cpuinfo | grep "^processor" | wc -l) "$@"
-            ;;
-    esac
-    case $@ in
-        *\ * )
-            echo $@ | awk 'gsub(/ /,"\n") {print}' | while read line; do
-                blackmagic=`sed -n "/$line/{p;q;}" $ANDROID_PRODUCT_OUT/installed-files.txt | awk {'print $2'}`
-                if [ `echo $blackmagic | cut -f3 -d "/" = framework ];
-                elif [ `echo $blackmagic | cut -f4 -d "/" = SystemUI.apk ]; then
-                    adb_stop=true
-                fi
-                adb remount
-                if [ $adb_stop = true ]; then
-                    adb shell stop
-                fi
-                adb push $ANDROID_PRODUCT_OUT$blackmagic $blackmagic
-                if [ $adb_stop = true ]; then
-                    adb shell start
-                fi
-            done
-            ;;
-        *)
-            blackmagic=`sed -n "/$@/{p;q;}" $ANDROID_PRODUCT_OUT/installed-files.txt | awk {'print $2'}`
-            if [ `echo $blackmagic | cut -f3 -d "/" = framework ];
-            elif [ `echo $blackmagic | cut -f4 -d "/" = SystemUI.apk ]; then
-                adb_stop=true
-            fi
-            adb remount
-            if [ $adb_stop = true ]; then
-                adb shell stop
-            fi
-            adb push $ANDROID_PRODUCT_OUT$blackmagic $blackmagic
-            if [ $adb_stop = true ]; then
-                adb shell start
-            fi
-            ;;
-    esac
-}
-
-function pstest() {
-    if [ -z "$1" ] || [ "$1" = '--help' ] || [[ "$1" != */* ]]
-    then
-        echo "pstest"
-        echo "to use: pstest PATCH_ID/PATCH_SET"
-        echo "example: pstest 5555/5"
-    else
-        gerrit=gerrit.aokp.co
-        project=`git config --get remote.aokp.projectname`
-        patch="$1"
-        submission=`echo $patch | cut -f1 -d "/" | tail -c 3`
-        git fetch http://$gerrit/$project refs/changes/$submission/$patch && git cherry-pick FETCH_HEAD
-    fi
-}
-
-function pspush_error() {
-        echo "Requires ~/.ssh/config setup with the the following info:"
-        echo "      Host gerrit"
-        echo "        HostName gerrit.aokp.co"
-        echo "        User <your username>"
-        echo "        Port 29418"
-}
-
-function pspush() {
-    if [ -z "$1" ] || [ "$1" = '--help' ]; then
-        echo "pspush"
-        echo "to use:  pspush STATUS"
-        echo "where STATUS: for=regular; drafts=draft; heads=pushed to github"
-        echo "example: pspush for"
-    else
-        checkSshConfig=` grep -rH "gerrit.aokp.co" ~/.ssh/config `
-        if [ "$checkSshConfig" != "" ]; then
-            gerrit=gerrit.aokp.co
-            project=` git config --get remote.aokp.projectname`
-            status="$1"
-            git push gerrit:/$project HEAD:refs/$status/jb-mr2
-        else
-            pspush_error
-        fi
-    fi
-}
-
-function taco() {
-    for sauce in "$@"
-    do
-        breakfast $sauce
-        if [ $? -eq 0 ]; then
-            croot
-            ./vendor/ska/bot/build_device.sh ska_$sauce-userdebug $sauce
-        else
-            echo "No such item in brunch menu. Try 'breakfast'"
-        fi
-    done
-}
-
-function reposync() {
-    case `uname -s` in
-        Darwin)
-            repo sync -j 4 "$@"
-            ;;
-        *)
-            schedtool -B -n 1 -e ionice -n 1 repo sync -j 4 "$@"
-            ;;
-    esac
-}
-
 # Force JAVA_HOME to point to java 1.6 if it isn't already set
 function set_java_home() {
     if [ ! "$JAVA_HOME" ]; then
@@ -1489,6 +1450,13 @@ function set_java_home() {
         esac
     fi
 }
+
+function repopick() {
+    set_stuff_for_environment
+    T=$(gettop)
+    $T/build/tools/repopick.py $@
+}
+
 
 # Print colored exit condition
 function pez {
@@ -1507,16 +1475,15 @@ if [ "x$SHELL" != "x/bin/bash" ]; then
     case `ps -o command -p $$` in
         *bash*)
             ;;
-        *zsh*)
-            ;;
         *)
-            echo "WARNING: Only bash and zsh are supported, use of other shell may lead to erroneous results"
+            echo "WARNING: Only bash is supported, use of other shell would lead to erroneous results"
             ;;
     esac
 fi
 
 # Execute the contents of any vendorsetup.sh files we can find.
-for f in `/bin/ls vendor/*/vendorsetup.sh vendor/*/*/vendorsetup.sh device/*/*/vendorsetup.sh 2> /dev/null`
+for f in `test -d device && find device -maxdepth 4 -name 'vendorsetup.sh' 2> /dev/null` \
+         `test -d vendor && find vendor -maxdepth 4 -name 'vendorsetup.sh' 2> /dev/null`
 do
     echo "including $f"
     . $f
@@ -1524,3 +1491,5 @@ done
 unset f
 
 addcompletions
+
+export ANDROID_BUILD_TOP=$(gettop)

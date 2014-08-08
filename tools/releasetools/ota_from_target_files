@@ -56,16 +56,9 @@ Usage:  ota_from_target_files [flags] input_target_files output_ota_package
       Enable or disable the execution of backuptool.sh.
       Disabled by default.
 
-  --override_device <device>
-      Override device-specific asserts. Can be a comma-separated list.
-
   --override_prop <boolean>
       Override build.prop items with custom vendor init.
       Enabled when TARGET_UNIFIED_DEVICE is defined in BoardConfig
-
-  --mount_by_label <boolean>
-      Force the OTA package to mount and format System by label
-      Can be enabled by defining TARGET_SETS_FSTAB. Defaults to false.
 
   -2  (--two_step)
       Generate a 'two-step' OTA package, where recovery is updated
@@ -109,9 +102,7 @@ OPTIONS.extra_script = None
 OPTIONS.aslr_mode = True
 OPTIONS.worker_threads = 3
 OPTIONS.backuptool = False
-OPTIONS.override_device = 'auto'
 OPTIONS.override_prop = False
-OPTIONS.mount_by_label = False
 OPTIONS.two_step = False
 
 def MostPopularKey(d, default):
@@ -318,6 +309,28 @@ class Item:
 
     recurse(self, (-1, -1, -1, -1, None, None))
 
+def CopyDataFiles(input_zip, output_zip=None,
+                    substitute=None):
+  """Copies files underneathe data/ in the input zip to the output
+  zip. Populates the Item class with their metadata, and returns a
+  skipped (but the other side effects still happen). substitute is an
+  optional dict of {output filename: contents} to be output instead of
+  certain input files.
+  """
+
+  for info in input_zip.infolist():
+    if info.filename.startswith("DATA/"):
+      basefilename = info.filename[5:]
+      info2 = copy.copy(info)
+      fn = info2.filename = "data/" + basefilename
+      if output_zip is not None:
+        data = input_zip.read(info.filename)
+        output_zip.writestr(info2, data)
+        if fn.endswith("/"):
+          Item.Get(fn[:-1], dir=True)
+        else:
+          Item.Get(fn, dir=False)
+  return
 
 def CopySystemFiles(input_zip, output_zip=None,
                     substitute=None):
@@ -363,18 +376,6 @@ def SignOutput(temp_zip_name, output_zip_name):
 
   common.SignFile(temp_zip_name, output_zip_name, OPTIONS.package_key, pw,
                   whole_file=True)
-
-
-def AppendAssertions(script, info_dict):
-  if OPTIONS.override_device == "auto":
-    if OPTIONS.override_prop:
-      device = GetBuildProp("ro.build.product", info_dict)
-    else:
-      device = GetBuildProp("ro.product.device", info_dict)
-  else:
-    device = OPTIONS.override_device
-  script.AssertDevice(device)
-
 
 def MakeRecoveryPatch(input_tmp, output_zip, recovery_img, boot_img):
   """Generate a binary patch that creates the recovery image starting
@@ -458,12 +459,6 @@ def WriteFullOTAPackage(input_zip, output_zip):
       metadata=metadata,
       info_dict=OPTIONS.info_dict)
 
-  #if not OPTIONS.omit_prereq:
-  #  ts = GetBuildProp("ro.build.date.utc", OPTIONS.info_dict)
-  #  ts_text = GetBuildProp("ro.build.date", OPTIONS.info_dict)
-  #  script.AssertOlderBuild(ts, ts_text)
-
-  AppendAssertions(script, OPTIONS.info_dict)
   device_specific.FullOTA_Assertions()
 
   # Two-step package strategy (in chronological order, which is *not*
@@ -485,8 +480,8 @@ def WriteFullOTAPackage(input_zip, output_zip):
   #       set up system to update recovery partition on first boot
   #    complete script normally (allow recovery to mark itself finished and reboot)
 
-  # recovery_img = common.GetBootableImage("recovery.img", "recovery.img",
-  #                                        OPTIONS.input_tmp, "RECOVERY")
+#  recovery_img = common.GetBootableImage("recovery.img", "recovery.img",
+#                                         OPTIONS.input_tmp, "RECOVERY")
   if OPTIONS.two_step:
     if not OPTIONS.info_dict.get("multistage_support", None):
       assert False, "two-step packages not supported by this build"
@@ -508,16 +503,14 @@ else if get_stage("%(bcb_dev)s", "stage") == "3/3" then
   device_specific.FullOTA_InstallBegin()
 
   if OPTIONS.backuptool:
-    script.Mount("/system", OPTIONS.mount_by_label)
+    script.Mount("/system")
     script.RunBackup("backup")
-    if not OPTIONS.mount_by_label:
-      script.Unmount("/system")
+    script.Unmount("/system")
 
   script.ShowProgress(0.5, 0)
 
   if OPTIONS.wipe_user_data:
-    script.Print("Formatting /data")
-    script.FormatPartition("/data", OPTIONS.mount_by_label)
+    script.FormatPartition("/data")
 
   script.Print("=============================================");    
   script.Print("               TTTTTTTTTTTTTTTTTT           ");
@@ -532,20 +525,24 @@ else if get_stage("%(bcb_dev)s", "stage") == "3/3" then
   script.Print("                 NNNN     NNNN  NNNN        ");
   script.Print("                NNNN       NNNNNNNN         ");
   script.Print("=============================================");
+  script.Print(" ___________________________________________ ");
+  script.Print("         Team Nocturnal's NOSP Project       ");
+  script.Print("         Development@Team-Nocturnal.com      ");
+  script.Print("            Twitter @Team_Nocturnal          ");
+  script.Print("              Team-Nocturnal.com             ");
+  script.Print("          Custom Roms, Themes & Mods         ");
+  script.Print(" ___________________________________________ ");
   if "selinux_fc" in OPTIONS.info_dict:
     WritePolicyConfig(OPTIONS.info_dict["selinux_fc"], output_zip)
 
-  script.Print("Formatting /system")
-  script.FormatPartition("/system", OPTIONS.mount_by_label)
-  if not OPTIONS.mount_by_label:
-    script.Mount("/system")
-
-#  script.UnpackPackageDir("recovery", "/system")
-  script.Print("Extracting /system")
+  script.Print("")
+  script.Print("Format and Mount System")
+  script.FormatPartition("/system")
+  script.Mount("/system")
   script.UnpackPackageDir("system", "/system")
 
+  script.Print("Symlinks and permissions...")
   symlinks = CopySystemFiles(input_zip, output_zip)
-  script.Print("Symlinking")
   script.MakeSymlinks(symlinks)
 
   boot_img = common.GetBootableImage("boot.img", "boot.img",
@@ -567,6 +564,7 @@ else if get_stage("%(bcb_dev)s", "stage") == "3/3" then
     script.RunBackup("restore")
 
   script.ShowProgress(0.2, 10)
+  script.Print("Flashing Boot Image...")
   script.WriteRawImage("/boot", "boot.img")
 
   script.ShowProgress(0.1, 0)
@@ -721,7 +719,7 @@ def WriteIncrementalOTAPackage(target_zip, source_zip, output_zip):
     if d is None or len(d) > tf.size * OPTIONS.patch_threshold or \
         path not in known_paths:
       # patch is almost as big as the file; don't bother patching
-      # or a patch + rename cannot take place due to the target
+      # or a patch + rename cannot take place due to the target 
       # directory not existing
       tf.AddToZip(output_zip)
       verbatim_targets.append((tf.name, tf.size))
@@ -739,8 +737,7 @@ def WriteIncrementalOTAPackage(target_zip, source_zip, output_zip):
     metadata["pre-build"] = source_fp
     metadata["post-build"] = target_fp
 
-    script.Mount("/system", OPTIONS.mount_by_label)
-    script.AssertSomeFingerprint(source_fp, target_fp)
+    script.Mount("/system")
 
   source_boot = common.GetBootableImage(
       "/tmp/boot.img", "boot.img", OPTIONS.source_tmp, "BOOT",
@@ -755,7 +752,7 @@ def WriteIncrementalOTAPackage(target_zip, source_zip, output_zip):
   #    OPTIONS.source_info_dict)
   #target_recovery = common.GetBootableImage(
   #    "/tmp/recovery.img", "recovery.img", OPTIONS.target_tmp, "RECOVERY")
-  updating_recovery = (source_recovery.data != target_recovery.data)
+  #updating_recovery = (source_recovery.data != target_recovery.data)
 
   # Here's how we divide up the progress bar:
   #  0.1 for verifying the start state (PatchCheck calls)
@@ -763,8 +760,6 @@ def WriteIncrementalOTAPackage(target_zip, source_zip, output_zip):
   #  0.1 for unpacking verbatim files, symlinking, and doing the
   #      device-specific commands.
 
-  AppendAssertions(script, OPTIONS.target_info_dict)
-  device_specific.IncrementalOTA_Assertions()
 
   # Two-step incremental package strategy (in chronological order,
   # which is *not* the order in which the generated script has
@@ -864,7 +859,7 @@ else
 
   if OPTIONS.wipe_user_data:
     script.Print("Erasing user data...")
-    script.FormatPartition("/data", OPTIONS.mount_by_label)
+    script.FormatPartition("/data")
 
   script.Print("Removing unneeded files...")
   script.DeleteFiles(["/"+i[0] for i in verbatim_targets] +
@@ -1036,12 +1031,8 @@ def main(argv):
       OPTIONS.worker_threads = int(a)
     elif o in ("--backup"):
       OPTIONS.backuptool = bool(a.lower() == 'true')
-    elif o in ("--override_device"):
-      OPTIONS.override_device = a
     elif o in ("--override_prop"):
       OPTIONS.override_prop = bool(a.lower() == 'true')
-    elif o in ("--mount_by_label"):
-      OPTIONS.mount_by_label = bool(a.lower() == 'true')
     elif o in ("-2", "--two_step"):
       OPTIONS.two_step = True
     else:
@@ -1059,10 +1050,9 @@ def main(argv):
                                               "worker_threads=",
                                               "aslr_mode=",
                                               "backup=",
-                                              "override_device=",
                                               "override_prop=",
-                                              "mount_by_label=",
-                                              "two_step"],
+                                              "two_step",
+                                              ],
                              extra_option_handler=option_handler)
 
   if len(args) != 2:
@@ -1077,7 +1067,6 @@ def main(argv):
 
   OPTIONS.target_tmp = OPTIONS.input_tmp
   OPTIONS.info_dict = common.LoadInfoDict(input_zip)
-
 
   # If this image was originally labelled with SELinux contexts, make sure we
   # also apply the labels in our new image. During building, the "file_contexts"
