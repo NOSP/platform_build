@@ -34,21 +34,6 @@ ifeq ($(LOCAL_PROGUARD_ENABLED),disabled)
   LOCAL_PROGUARD_ENABLED :=
 endif
 
-ifneq (true,$(WITH_DEXPREOPT))
-LOCAL_DEX_PREOPT :=
-else
-ifeq (,$(TARGET_BUILD_APPS))
-ifeq (,$(LOCAL_APK_LIBRARIES))
-ifndef LOCAL_DEX_PREOPT
-LOCAL_DEX_PREOPT := $(DEX_PREOPT_DEFAULT)
-endif
-endif
-endif
-endif
-ifeq (false,$(LOCAL_DEX_PREOPT))
-LOCAL_DEX_PREOPT :=
-endif
-
 ifeq (true,$(EMMA_INSTRUMENT))
 ifeq (true,$(LOCAL_EMMA_INSTRUMENT))
 ifeq (true,$(EMMA_INSTRUMENT_STATIC))
@@ -71,7 +56,7 @@ $(common_javalib.jar) : $(full_classes_proguard_jar)
 else
 $(common_javalib.jar) : $(full_classes_jar)
 endif
-	@echo -e ${CL_GRN}"target Static Jar:"${CL_RST}" $(PRIVATE_MODULE) ($@)"
+	@echo "target Static Jar: $(PRIVATE_MODULE) ($@)"
 	$(copy-file-to-target)
 ifneq ($(extra_jar_args),)
 	$(add-java-resources-to-package)
@@ -84,7 +69,7 @@ else # !LOCAL_IS_STATIC_JAVA_LIBRARY
 
 $(common_javalib.jar): PRIVATE_DEX_FILE := $(built_dex)
 $(common_javalib.jar) : $(built_dex) $(java_resource_sources)
-	@echo -e ${CL_GRN}"target Jar:"${CL_RST}" $(PRIVATE_MODULE) ($@)"
+	@echo "target Jar: $(PRIVATE_MODULE) ($@)"
 	$(create-empty-package)
 	$(add-dex-to-package)
 	$(add-carried-java-resources)
@@ -93,27 +78,24 @@ ifneq ($(extra_jar_args),)
 endif
 
 ifdef LOCAL_DEX_PREOPT
-dexpreopt_boot_jar_module := $(filter $(LOCAL_MODULE),$(DEXPREOPT_BOOT_JARS_MODULES))
-ifneq ($(dexpreopt_boot_jar_module),)
+ifneq ($(dexpreopt_boot_jar_module),) # boot jar
 # boot jar's rules are defined in dex_preopt.mk
 dexpreopted_boot_jar := $(DEXPREOPT_BOOT_JAR_DIR_FULL_PATH)/$(dexpreopt_boot_jar_module)_nodex.jar
 $(LOCAL_BUILT_MODULE) : $(dexpreopted_boot_jar) | $(ACP)
 	$(call copy-file-to-target)
 
+# For libart boot jars, we don't have .odex files.
+ifeq ($(DALVIK_VM_LIB),libdvm.so)
 dexpreopted_boot_odex := $(DEXPREOPT_BOOT_JAR_DIR_FULL_PATH)/$(dexpreopt_boot_jar_module).odex
-built_odex := $(basename $(LOCAL_BUILT_MODULE)).odex
 $(built_odex) : $(dexpreopted_boot_odex) | $(ACP)
 	$(call copy-file-to-target)
+endif
 
-else # dexpreopt_boot_jar_module
-built_odex := $(basename $(LOCAL_BUILT_MODULE)).odex
+else # ! boot jar
 $(built_odex): PRIVATE_MODULE := $(LOCAL_MODULE)
-# Make sure the boot jars get dex-preopt-ed first
-$(built_odex) : $(DEXPREOPT_BOOT_ODEXS)
-$(built_odex) : $(common_javalib.jar) | $(DEXPREOPT) $(DEXOPT)
-	@echo -e ${CL_GRN}"Dexpreopt Jar:"${CL_RST}" $(PRIVATE_MODULE) ($@)"
-	$(hide) rm -f $@
-	@mkdir -p $(dir $@)
+# Use pattern rule - we may have multiple built odex files.
+$(built_odex) : $(dir $(LOCAL_BUILT_MODULE))% : $(common_javalib.jar)
+	@echo "Dexpreopt Jar: $(PRIVATE_MODULE) ($@)"
 	$(call dexpreopt-one-file,$<,$@)
 
 $(LOCAL_BUILT_MODULE) : $(common_javalib.jar) | $(ACP)
@@ -122,7 +104,7 @@ ifneq (nostripping,$(LOCAL_DEX_PREOPT))
 	$(call dexpreopt-remove-classes.dex,$@)
 endif
 
-endif # dexpreopt_boot_jar_module
+endif # ! boot jar
 
 else # LOCAL_DEX_PREOPT
 $(LOCAL_BUILT_MODULE) : $(common_javalib.jar) | $(ACP)
