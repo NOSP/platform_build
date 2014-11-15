@@ -311,12 +311,23 @@ def BuildBootableImage(sourcedir, fs_config_file, info_dict=None):
   # use MKBOOTIMG from environ, or "mkbootimg" if empty or not set
   mkbootimg = os.getenv('MKBOOTIMG') or "mkbootimg"
 
-  cmd = [mkbootimg, "--kernel", os.path.join(sourcedir, "kernel")]
-
-  fn = os.path.join(sourcedir, "second")
+  """check if uboot is requested"""
+  fn = os.path.join(sourcedir, "ubootargs")
   if os.access(fn, os.F_OK):
     cmd.append("--second")
     cmd.append(fn)
+
+  fn = os.path.join(sourcedir, "cmdline")
+  if os.access(fn, os.F_OK):
+    cmd = ["mkimage"]
+  for argument in open(fn).read().rstrip("\n").split(" "):
+    cmd.append(argument)
+    cmd.append("-d")
+    cmd.append(os.path.join(sourcedir, "kernel")+":"+ramdisk_img.name)
+    cmd.append(img.name)
+
+  else:
+    cmd = ["mkbootimg", "--kernel", os.path.join(sourcedir, "kernel")]
 
   fn = os.path.join(sourcedir, "cmdline")
   if os.access(fn, os.F_OK):
@@ -336,6 +347,14 @@ def BuildBootableImage(sourcedir, fs_config_file, info_dict=None):
   args = info_dict.get("mkbootimg_args", None)
   if args and args.strip():
     cmd.extend(shlex.split(args))
+
+  cmd.extend(["--ramdisk", ramdisk_img.name,
+              "--output", img.name])
+
+  fn = os.path.join(sourcedir, "ramdiskaddr")
+  if os.access(fn, os.F_OK):
+    cmd.append("--ramdiskaddr")
+    cmd.append(open(fn).read().rstrip("\n"))
 
   cmd.extend(["--ramdisk", ramdisk_img.name,
               "--output", img.name])
@@ -1095,8 +1114,9 @@ DataImage = blockimgdiff.DataImage
 
 # map recovery.fstab's fs_types to mount/format "partition types"
 PARTITION_TYPES = { "yaffs2": "MTD", "mtd": "MTD",
+                    "ext2": "EMMC", "ext3": "EMMC",
                     "ext4": "EMMC", "emmc": "EMMC",
-                    "f2fs": "EMMC" }
+                    "vfat": "EMMC", "f2fs": "EMMC" }
 
 def GetTypeAndDevice(mount_point, info):
   fstab = info["fstab"]

@@ -65,10 +65,11 @@ Usage:  ota_from_target_files [flags] input_target_files output_ota_package
       first, so that any changes made to the system partition are done
       using the new recovery (new kernel, etc.).
 
-  --block
+  --block <boolean>
       Generate a block-based OTA if possible.  Will fall back to a
       file-based OTA if the target_files is older and doesn't support
       block-based OTAs.
+      Disabled by default
 
   -b  (--binary)  <file>
       Use the given binary as the update-binary in the output package,
@@ -79,9 +80,13 @@ Usage:  ota_from_target_files [flags] input_target_files output_ota_package
       Specifies the number of worker-threads that will be used when
       generating patches for incremental updates (defaults to 3).
 
+  --override_device <device>
+      Override device-specific asserts. Can be a comma-separated list.
+
 """
 
 import sys
+import os
 
 if sys.hexversion < 0x02070000:
   print >> sys.stderr, "Python 2.7 or newer is required."
@@ -125,6 +130,7 @@ OPTIONS.block_based = False
 OPTIONS.updater_binary = None
 OPTIONS.oem_source = None
 OPTIONS.fallback_to_full = True
+OPTIONS.override_device = 'auto'
 
 def MostPopularKey(d, default):
   """Given a dict, return the key corresponding to the largest
@@ -138,7 +144,7 @@ def MostPopularKey(d, default):
 def IsSymlink(info):
   """Return true if the zipfile.ZipInfo object passed in represents a
   symlink."""
-  return (info.external_attr >> 16) == 0120777
+  return (info.external_attr >> 16) & 0770000 == 0120000
 
 def IsRegular(info):
   """Return true if the zipfile.ZipInfo object passed in represents a
@@ -381,11 +387,21 @@ def SignOutput(temp_zip_name, output_zip_name):
   common.SignFile(temp_zip_name, output_zip_name, OPTIONS.package_key, pw,
                   whole_file=True)
 
+  ########## Printing of md5sum ##########
+  print "############ md5sum ############\n"
+  os.system("md5sum " + output_zip_name + " > " + output_zip_name + ".md5sum")
+  os.system("cat " + output_zip_name + ".md5sum")
+  print "\n################################"
+  os.system("touch " + output_zip_name.replace(".zip", ".log"))
+
 
 def AppendAssertions(script, info_dict, oem_dict = None):
   oem_props = info_dict.get("oem_fingerprint_properties")
   if oem_props is None or len(oem_props) == 0:
-    device = GetBuildProp("ro.product.device", info_dict)
+    if OPTIONS.override_device == "auto":
+      device = GetBuildProp("ro.product.device", info_dict)
+    else:
+      device = OPTIONS.override_device
     script.AssertDevice(device)
   else:
     if oem_dict is None:
@@ -414,7 +430,6 @@ def GetOemProperty(name, oem_props, oem_dict, info_dict):
   if oem_props is not None and name in oem_props:
     return oem_dict[name]
   return GetBuildProp(name, info_dict)
-
 
 def CalculateFingerprint(oem_props, oem_dict, info_dict):
   if oem_props is None:
@@ -495,10 +510,10 @@ def WriteFullOTAPackage(input_zip, output_zip):
   has_recovery_patch = HasRecoveryPatch(input_zip)
   block_based = OPTIONS.block_based and has_recovery_patch
 
-  if not OPTIONS.omit_prereq:
-    ts = GetBuildProp("ro.build.date.utc", OPTIONS.info_dict)
-    ts_text = GetBuildProp("ro.build.date", OPTIONS.info_dict)
-    script.AssertOlderBuild(ts, ts_text)
+  #if not OPTIONS.omit_prereq:
+  #  ts = GetBuildProp("ro.build.date.utc", OPTIONS.info_dict)
+  #  ts_text = GetBuildProp("ro.build.date", OPTIONS.info_dict)
+  #  script.AssertOlderBuild(ts, ts_text)
 
   AppendAssertions(script, OPTIONS.info_dict, oem_dict)
   device_specific.FullOTA_Assertions()
@@ -522,8 +537,8 @@ def WriteFullOTAPackage(input_zip, output_zip):
   #       set up system to update recovery partition on first boot
   #    complete script normally (allow recovery to mark itself finished and reboot)
 
-  recovery_img = common.GetBootableImage("recovery.img", "recovery.img",
-                                         OPTIONS.input_tmp, "RECOVERY")
+  #recovery_img = common.GetBootableImage("recovery.img", "recovery.img",
+  #                                       OPTIONS.input_tmp, "RECOVERY")
   if OPTIONS.two_step:
     if not OPTIONS.info_dict.get("multistage_support", None):
       assert False, "two-step packages not supported by this build"
@@ -531,11 +546,11 @@ def WriteFullOTAPackage(input_zip, output_zip):
     assert fs.fs_type.upper() == "EMMC", \
         "two-step packages only supported on devices with EMMC /misc partitions"
     bcb_dev = {"bcb_dev": fs.device}
-    common.ZipWriteStr(output_zip, "recovery.img", recovery_img.data)
+    #common.ZipWriteStr(output_zip, "recovery.img", recovery_img.data)
     script.AppendExtra("""
 if get_stage("%(bcb_dev)s") == "2/3" then
 """ % bcb_dev)
-    script.WriteRawImage("/recovery", "recovery.img")
+    #script.WriteRawImage("/recovery", "recovery.img")
     script.AppendExtra("""
 set_stage("%(bcb_dev)s", "3/3");
 reboot_now("%(bcb_dev)s", "recovery");
@@ -550,6 +565,26 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     system_progress -= 0.1
   if HasVendorPartition(input_zip):
     system_progress -= 0.1
+  script.Print("=========================================");    
+  script.Print("           TTTTTTTTTTTTTTTTTT           ");
+  script.Print("            TTTTTTTTTTTTTTT             ");
+  script.Print("                TTTT                    ");
+  script.Print("               TTTT                     ");
+  script.Print("              TTTT                      ");
+  script.Print("             TTTT                       ");
+  script.Print("                NNNNNNN        NNNN     ");
+  script.Print("               NNNN NNNN      NNNN      ");
+  script.Print("              NNNN   NNNN    NNNN       ");
+  script.Print("             NNNN     NNNN  NNNN        ");
+  script.Print("            NNNN       NNNNNNNN         ");
+  script.Print("=========================================");
+  script.Print(" _______________________________________ ");
+  script.Print("     Team Nocturnal's NOSP Project       ");
+  script.Print("     Development@Team-Nocturnal.com      ");
+  script.Print("        Twitter @Team_Nocturnal          ");
+  script.Print("          Team-Nocturnal.com             ");
+  script.Print("      Custom Roms, Themes & Mods         ");
+  script.Print(" _______________________________________ ");
 
   if "selinux_fc" in OPTIONS.info_dict:
     WritePolicyConfig(OPTIONS.info_dict["selinux_fc"], output_zip)
@@ -568,13 +603,14 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     system_diff = common.BlockDifference("system", system_tgt, src=None)
     system_diff.WriteScript(script, output_zip)
   else:
+    script.Print("Formatting system")
     script.FormatPartition("/system")
     script.Mount("/system", recovery_mount_options)
-    if not has_recovery_patch:
-      script.UnpackPackageDir("recovery", "/system")
+    #if not has_recovery_patch:
+      #script.UnpackPackageDir("recovery", "/system")
     script.UnpackPackageDir("system", "/system")
-
     symlinks = CopyPartitionFiles(system_items, input_zip, output_zip)
+    script.Print("Creating symlinks")
     script.MakeSymlinks(symlinks)
 
   boot_img = common.GetBootableImage("boot.img", "boot.img",
@@ -585,10 +621,11 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       common.ZipWriteStr(output_zip, "recovery/" + fn, data)
       system_items.Get("system/" + fn, dir=False)
 
-    common.MakeRecoveryPatch(OPTIONS.input_tmp, output_sink,
-                             recovery_img, boot_img)
+    #common.MakeRecoveryPatch(OPTIONS.input_tmp, output_sink,
+    #                         recovery_img, boot_img)
 
     system_items.GetMetadata(input_zip)
+    script.Print("Setting permissions")
     system_items.Get("system").SetPermissions(script)
 
   if HasVendorPartition(input_zip):
@@ -1104,11 +1141,11 @@ def WriteIncrementalOTAPackage(target_zip, source_zip, output_zip):
   updating_boot = (not OPTIONS.two_step and
                    (source_boot.data != target_boot.data))
 
-  source_recovery = common.GetBootableImage(
-      "/tmp/recovery.img", "recovery.img", OPTIONS.source_tmp, "RECOVERY",
-      OPTIONS.source_info_dict)
-  target_recovery = common.GetBootableImage(
-      "/tmp/recovery.img", "recovery.img", OPTIONS.target_tmp, "RECOVERY")
+#  source_recovery = common.GetBootableImage(
+#      "/tmp/recovery.img", "recovery.img", OPTIONS.source_tmp, "RECOVERY",
+#      OPTIONS.source_info_dict)
+#  target_recovery = common.GetBootableImage(
+#      "/tmp/recovery.img", "recovery.img", OPTIONS.target_tmp, "RECOVERY")
   updating_recovery = (source_recovery.data != target_recovery.data)
 
   # Here's how we divide up the progress bar:
@@ -1313,9 +1350,9 @@ else
     script.Print("Unpacking new vendor files...")
     script.UnpackPackageDir("vendor", "/vendor")
 
-  if updating_recovery and not target_has_recovery_patch:
-    script.Print("Unpacking new recovery...")
-    script.UnpackPackageDir("recovery", "/system")
+  #if updating_recovery and not target_has_recovery_patch:
+  #  script.Print("Unpacking new recovery...")
+  #  script.UnpackPackageDir("recovery", "/system")
 
   system_diff.EmitRenames(script)
   if vendor_diff:
@@ -1413,12 +1450,14 @@ def main(argv):
       OPTIONS.no_signing = True
     elif o in ("--verify"):
       OPTIONS.verify = True
-    elif o == "--block":
-      OPTIONS.block_based = True
+    elif o in ("--block"):
+      OPTIONS.block_based = bool(a.lower() == 'true')
     elif o in ("-b", "--binary"):
       OPTIONS.updater_binary = a
     elif o in ("--no_fallback_to_full",):
       OPTIONS.fallback_to_full = False
+    elif o in ("--override_device"):
+      OPTIONS.override_device = a
     else:
       return False
     return True
@@ -1435,11 +1474,12 @@ def main(argv):
                                               "aslr_mode=",
                                               "two_step",
                                               "no_signing",
-                                              "block",
+                                              "block=",
                                               "binary=",
                                               "oem_settings=",
                                               "verify",
                                               "no_fallback_to_full",
+                                              "override_device=",
                                               ],
                              extra_option_handler=option_handler)
 

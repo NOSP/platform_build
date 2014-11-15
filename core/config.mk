@@ -53,6 +53,9 @@ SRC_TARGET_DIR := $(TOPDIR)build/target
 SRC_API_DIR := $(TOPDIR)prebuilts/sdk/api
 SRC_SYSTEM_API_DIR := $(TOPDIR)prebuilts/sdk/system-api
 
+# NOSP
+SRC_NOSP_DIR := $(TOPDIR)vendor/nosp
+
 # Some specific paths to tools
 SRC_DROIDDOC_DIR := $(TOPDIR)build/tools/droiddoc
 
