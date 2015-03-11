@@ -305,6 +305,9 @@ $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/build.prop)
 # 5.0.2
 $(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/build.prop)
 
+# 5.1.0
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/build.prop)
+
 # ************************************************
 # NEWER CLEAN STEPS MUST BE AT THE END OF THE LIST
 # ************************************************
